@@ -10,7 +10,11 @@ import {
     vaultSecretsQueryAtom,
 } from "@agenta/entities/secret"
 import type {SchemaProperty} from "@agenta/entities/shared"
-import {harnessCapabilitiesAtomFamily} from "@agenta/entities/workflow"
+import {
+    harnessCapabilitiesAtomFamily,
+    harnessCatalogFailedAtom,
+    retryHarnessCatalogAtom,
+} from "@agenta/entities/workflow"
 import {getEnabledSandboxProviders} from "@agenta/shared/api"
 import {normalizeProviderFamily} from "@agenta/shared/utils"
 import {ConfigAccordionSection} from "@agenta/ui/components/presentational"
@@ -18,8 +22,8 @@ import {useDrillInUI} from "@agenta/ui/drill-in"
 import {SelectLLMProviderBase} from "@agenta/ui/select-llm-provider"
 import {cn} from "@agenta/ui/styles"
 import {Check, Cube, Lightbulb, ShieldCheck, Sparkle, Warning} from "@phosphor-icons/react"
-import {Select, Typography} from "antd"
-import {atom, useAtomValue} from "jotai"
+import {Alert, Button, Select, Typography} from "antd"
+import {atom, useAtomValue, useSetAtom} from "jotai"
 
 import {RailField, railInfoLabel} from "../../../drawers/shared/RailField"
 import {SectionRail} from "../../../drawers/shared/SectionRail"
@@ -186,6 +190,11 @@ export function useModelHarness({
         useMemo(() => harnessCapabilitiesAtomFamily(harnessRefKey ?? ""), [harnessRefKey]),
     )
     const capabilities = harnessRefKey ? capabilitiesFromCatalog : null
+    const catalogFailed = useAtomValue(harnessCatalogFailedAtom)
+    const retryCatalog = useSetAtom(retryHarnessCatalogAtom)
+    // The schema asked for the catalog and we could not fetch it: say so instead of silently
+    // falling through to the pre-catalog controls, which look like an old build.
+    const catalogUnavailable = Boolean(harnessRefKey) && !capabilities && catalogFailed
     const mcpSupported = harnessSupportsUserMcp(capabilities, harnessValue)
 
     // Narrowed to the loaded flag (all this hook reads) — the raw query atom churns identity on
@@ -621,6 +630,20 @@ export function useModelHarness({
     // left (each card owns its model-compat state), version history on the right — same two-panel
     // shape as the Advanced drawer. Without capabilities: the plain harness select, single column.
     // Shared Model & harness controls — rendered by both the wide drawer body and the tabs-inline body.
+    const catalogUnavailableNotice = (
+        <Alert
+            type="warning"
+            showIcon
+            message="Couldn't load the model catalog"
+            description="The harness and model options come from the server. Until it responds, only the basic controls are available."
+            action={
+                <Button size="small" onClick={() => retryCatalog()}>
+                    Retry
+                </Button>
+            }
+        />
+    )
+
     const modelHarnessControls = capabilities ? (
         <>
             <ConfigAccordionSection
@@ -667,6 +690,7 @@ export function useModelHarness({
         </>
     ) : (
         <>
+            {catalogUnavailable ? catalogUnavailableNotice : null}
             {harnessProps.kind && (
                 <RailField label="Harness" align="center">
                     <HarnessSelectControl
